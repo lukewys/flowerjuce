@@ -20,6 +20,9 @@ void ParameterKnobs::addKnob(const KnobConfig& config)
     if (config.suffix.isNotEmpty())
         control.slider->setTextValueSuffix(config.suffix);
     
+    // Make text box smaller and more compact
+    control.slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+    
     if (config.onChange)
     {
         control.slider->onValueChange = [slider = control.slider.get(), onChange = config.onChange]()
@@ -28,9 +31,10 @@ void ParameterKnobs::addKnob(const KnobConfig& config)
         };
     }
     
-    // Create label
+    // Create label with smaller font
     control.label = std::make_unique<juce::Label>("", config.label);
     control.label->setJustificationType(juce::Justification::centred);
+    control.label->setFont(juce::FontOptions(11.0f));
     
     addAndMakeVisible(control.slider.get());
     addAndMakeVisible(control.label.get());
@@ -60,24 +64,76 @@ void ParameterKnobs::resized()
     
     auto bounds = getLocalBounds();
     
-    const int knobSize = 110;
-    const int knobSpacing = 15;
-    const int knobLabelHeight = 15;
-    const int knobLabelSpacing = 5;
+    // Compact dimensions for labels and spacing
+    const int knobLabelHeight = 12;    // Reduced from 15
+    const int knobLabelSpacing = 2;    // Reduced from 5
+    const int textBoxHeight = 16;      // Height of text box below knob
+    
+    // Preferred dimensions
+    const int preferredKnobSize = 110;
+    const int preferredKnobSpacing = 15;
+    
+    // Calculate how much space we actually have
+    const int availableWidth = bounds.getWidth();
+    const int numKnobs = static_cast<int>(knobs.size());
+    
+    // Calculate what fits
+    int preferredTotalWidth = (preferredKnobSize * numKnobs) + (preferredKnobSpacing * (numKnobs - 1));
+    
+    int knobSize;
+    int knobSpacing;
+    
+    if (preferredTotalWidth <= availableWidth)
+    {
+        // We have enough space, use preferred sizes
+        knobSize = preferredKnobSize;
+        knobSpacing = preferredKnobSpacing;
+    }
+    else
+    {
+        // Scale down to fit available width
+        // Start with smaller spacing
+        knobSpacing = juce::jmax(5, preferredKnobSpacing / 2);
+        
+        // Calculate knob size that fits
+        int totalSpacing = knobSpacing * (numKnobs - 1);
+        knobSize = (availableWidth - totalSpacing) / numKnobs;
+        
+        // Clamp to reasonable minimum
+        knobSize = juce::jmax(70, knobSize);  // Increased minimum from 60 to 70
+        
+        // Recalculate spacing if knobs are now too small
+        if (knobSize == 70)
+        {
+            totalSpacing = availableWidth - (knobSize * numKnobs);
+            knobSpacing = (numKnobs > 1) ? totalSpacing / (numKnobs - 1) : 0;
+        }
+    }
     
     // Calculate total width and center knobs
-    const int totalKnobWidth = (knobSize * knobs.size()) + (knobSpacing * (knobs.size() - 1));
+    const int totalKnobWidth = (knobSize * numKnobs) + (knobSpacing * (numKnobs - 1));
     const int knobStartX = (bounds.getWidth() - totalKnobWidth) / 2;
     
     for (size_t i = 0; i < knobs.size(); ++i)
     {
         int xPos = knobStartX + static_cast<int>(i) * (knobSize + knobSpacing);
         
-        auto knobArea = juce::Rectangle<int>(xPos, bounds.getY(), knobSize, knobSize);
+        // Total area for this knob column
+        auto knobArea = juce::Rectangle<int>(xPos, bounds.getY(), knobSize, bounds.getHeight());
+        
+        // Label at top (smaller)
         auto labelArea = knobArea.removeFromTop(knobLabelHeight);
         knobs[i].label->setBounds(labelArea);
+        
+        // Small spacing
         knobArea.removeFromTop(knobLabelSpacing);
-        knobs[i].slider->setBounds(knobArea);
+        
+        // Reserve space for text box at bottom
+        knobArea.removeFromBottom(textBoxHeight);
+        
+        // Rest goes to the slider (which includes the knob widget and text box)
+        // The slider will use its textBoxStyle settings to layout the text box
+        knobs[i].slider->setBounds(knobArea.expanded(0, textBoxHeight));
     }
 }
 

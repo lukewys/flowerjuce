@@ -428,7 +428,7 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
     
     parameterKnobs.addKnob({
         "periodic prompt",
-        0.0, 1.0, 0.0, 0.01,
+        1.0, 23.0, 8.0, 1.0,
         "",
         [this](double value) {
             // Value is stored in the knob, retrieved when generating
@@ -766,7 +766,7 @@ void LooperTrack::resetButtonClicked()
     parameterKnobs.setKnobValue(1, 0.5, juce::dontSendNotification); // overdub
     track.writeHead.setOverdubMix(0.5f);
     
-    parameterKnobs.setKnobValue(2, 0.0, juce::dontSendNotification); // periodic prompt
+    parameterKnobs.setKnobValue(2, 8.0, juce::dontSendNotification); // periodic prompt
     
     levelControl.setLevelValue(0.0, juce::dontSendNotification);
     track.readHead.setLevelDb(0.0f);
