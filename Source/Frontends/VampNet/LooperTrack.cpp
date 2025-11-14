@@ -1,4 +1,5 @@
 #include "LooperTrack.h"
+#include "../Shared/ModelParameterDialog.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
 using namespace VampNet;
@@ -35,7 +36,7 @@ void VampNetWorkerThread::run()
 
     // Call VampNet API
     juce::File outputFile;
-    auto result = callVampNetAPI(tempAudioFile, periodicPrompt, outputFile);
+    auto result = callVampNetAPI(tempAudioFile, periodicPrompt, customParams, outputFile);
 
     juce::MessageManager::callAsync([this, result, outputFile]()
     {
@@ -107,7 +108,7 @@ juce::Result VampNetWorkerThread::saveBufferToFile(int trackIndex, juce::File& o
     return juce::Result::ok();
 }
 
-juce::Result VampNetWorkerThread::callVampNetAPI(const juce::File& inputAudioFile, float periodicPrompt, juce::File& outputFile)
+juce::Result VampNetWorkerThread::callVampNetAPI(const juce::File& inputAudioFile, float periodicPrompt, const juce::var& customParams, juce::File& outputFile)
 {
     // VampNet API endpoint
     const juce::String defaultUrl = "https://hugggof-vampnet-music.hf.space/";
@@ -187,24 +188,30 @@ juce::Result VampNetWorkerThread::callVampNetAPI(const juce::File& inputAudioFil
         dataItems.add(juce::var());  // null for no audio
     }
     
-    // VampNet parameters (using defaults from API spec, except periodic prompt)
-    dataItems.add(juce::var(0.1));     // [1] sample temperature
-    dataItems.add(juce::var(0));       // [2] top p
-    dataItems.add(juce::var(periodicPrompt));  // [3] periodic prompt (user-controlled)
-    dataItems.add(juce::var(0));       // [4] mask dropout
-    dataItems.add(juce::var(0));       // [5] time stretch factor
-    dataItems.add(juce::var(0));       // [6] onset mask width
-    dataItems.add(juce::var(true));    // [7] typical filtering
-    dataItems.add(juce::var(0.01));    // [8] typical mass
-    dataItems.add(juce::var(1));       // [9] typical min tokens
-    dataItems.add(juce::var(3));       // [10] seed (0 for random, using 3 as default)
-    dataItems.add(juce::var("cat10")); // [11] model choice
-    dataItems.add(juce::var(1));       // [12] compression prompt
-    dataItems.add(juce::var(-12));     // [13] pitch shift amount
-    dataItems.add(juce::var(0));       // [14] sample cutoff
-    dataItems.add(juce::var(1));       // [15] sampling steps
-    dataItems.add(juce::var(1));       // [16] beat mask width
-    dataItems.add(juce::var(1));       // [17] feedback steps
+    // VampNet parameters - use custom params if provided, otherwise use defaults
+    juce::var paramsToUse = customParams.isObject() ? customParams : VampNet::LooperTrack::getDefaultVampNetParams();
+    
+    auto* obj = paramsToUse.getDynamicObject();
+    if (obj != nullptr)
+    {
+        dataItems.add(obj->getProperty("sample_temperature"));       // [1]
+        dataItems.add(obj->getProperty("top_p"));                   // [2]
+        dataItems.add(juce::var(periodicPrompt));                   // [3] periodic prompt (from UI)
+        dataItems.add(obj->getProperty("mask_dropout"));            // [4]
+        dataItems.add(obj->getProperty("time_stretch_factor"));     // [5]
+        dataItems.add(obj->getProperty("onset_mask_width"));        // [6]
+        dataItems.add(obj->getProperty("typical_filtering"));       // [7]
+        dataItems.add(obj->getProperty("typical_mass"));            // [8]
+        dataItems.add(obj->getProperty("typical_min_tokens"));      // [9]
+        dataItems.add(obj->getProperty("seed"));                    // [10]
+        dataItems.add(obj->getProperty("model_choice"));            // [11]
+        dataItems.add(obj->getProperty("compression_prompt"));      // [12]
+        dataItems.add(obj->getProperty("pitch_shift_amount"));      // [13]
+        dataItems.add(obj->getProperty("sample_cutoff"));           // [14]
+        dataItems.add(obj->getProperty("sampling_steps"));          // [15]
+        dataItems.add(obj->getProperty("beat_mask_width"));         // [16]
+        dataItems.add(obj->getProperty("feedback_steps"));          // [17]
+    }
     
     juce::DynamicObject::Ptr payloadObj = new juce::DynamicObject();
     payloadObj->setProperty("data", juce::var(dataItems));
@@ -242,11 +249,11 @@ juce::Result VampNetWorkerThread::callVampNetAPI(const juce::File& inputAudioFil
     if (parseResult.failed() || !parsedResponse.isObject())
         return juce::Result::fail("Failed to parse POST response");
 
-    juce::DynamicObject* obj = parsedResponse.getDynamicObject();
-    if (obj == nullptr || !obj->hasProperty("event_id"))
+    juce::DynamicObject* responseObj = parsedResponse.getDynamicObject();
+    if (responseObj == nullptr || !responseObj->hasProperty("event_id"))
         return juce::Result::fail("Response does not contain 'event_id'");
 
-    juce::String eventID = obj->getProperty("event_id").toString();
+    juce::String eventID = responseObj->getProperty("event_id").toString();
     if (eventID.isEmpty())
         return juce::Result::fail("event_id is empty");
 
@@ -370,6 +377,9 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
       generateButton("generate"),
       gradioUrlProvider(std::move(gradioUrlGetter))
 {
+    // Initialize custom params with defaults
+    customVampNetParams = getDefaultVampNetParams();
+    
     // Setup track label
     trackLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(trackLabel);
@@ -381,6 +391,11 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
     // Setup generate button
     generateButton.onClick = [this] { generateButtonClicked(); };
     addAndMakeVisible(generateButton);
+    
+    // Setup configure params button
+    configureParamsButton.setButtonText("configure other model parameters...");
+    configureParamsButton.onClick = [this] { configureParamsButtonClicked(); };
+    addAndMakeVisible(configureParamsButton);
     
     // Setup waveform display
     addAndMakeVisible(waveformDisplay);
@@ -449,6 +464,7 @@ void LooperTrack::applyLookAndFeel()
         trackLabel.setLookAndFeel(&laf);
         resetButton.setLookAndFeel(&laf);
         generateButton.setLookAndFeel(&laf);
+        configureParamsButton.setLookAndFeel(&laf);
     }
 }
 
@@ -485,6 +501,7 @@ void LooperTrack::resized()
     const int spacingSmall = 5;
     const int buttonHeight = 30;
     const int generateButtonHeight = 30;
+    const int configureButtonHeight = 30;
     const int outputSelectorHeight = 30;
     const int knobAreaHeight = 140;
     const int controlsHeight = 160;
@@ -492,6 +509,7 @@ void LooperTrack::resized()
     const int totalBottomHeight = knobAreaHeight + spacingSmall + 
                                    controlsHeight + spacingSmall +
                                    generateButtonHeight + spacingSmall + 
+                                   configureButtonHeight + spacingSmall +
                                    buttonHeight + spacingSmall + 
                                    outputSelectorHeight;
     
@@ -523,6 +541,10 @@ void LooperTrack::resized()
     
     // Generate button
     generateButton.setBounds(bottomArea.removeFromTop(generateButtonHeight));
+    bottomArea.removeFromTop(spacingSmall);
+    
+    // Configure params button
+    configureParamsButton.setBounds(bottomArea.removeFromTop(configureButtonHeight));
     bottomArea.removeFromTop(spacingSmall);
     
     // Transport buttons
@@ -617,6 +639,7 @@ void LooperTrack::generateButtonClicked()
                                                                 trackIndex,
                                                                 audioFile,
                                                                 periodicPrompt,
+                                                                customVampNetParams,
                                                                 gradioUrlProvider);
     vampNetWorkerThread->onComplete = [this](juce::Result result, juce::File outputFile, int trackIdx)
     {
@@ -624,6 +647,45 @@ void LooperTrack::generateButtonClicked()
     };
     
     vampNetWorkerThread->startThread();
+}
+
+void LooperTrack::configureParamsButtonClicked()
+{
+    auto* dialog = new Shared::ModelParameterDialog(
+        "VampNet",
+        customVampNetParams,
+        [this](const juce::var& newParams) {
+            customVampNetParams = newParams;
+            DBG("VampNet custom parameters updated");
+        }
+    );
+    
+    dialog->enterModalState(true);
+}
+
+juce::var LooperTrack::getDefaultVampNetParams()
+{
+    // Create default parameters object (excluding periodic_prompt which is in UI)
+    juce::DynamicObject::Ptr params = new juce::DynamicObject();
+    
+    params->setProperty("sample_temperature", juce::var(1.0));
+    params->setProperty("top_p", juce::var(0));
+    params->setProperty("mask_dropout", juce::var(0));
+    params->setProperty("time_stretch_factor", juce::var(1));
+    params->setProperty("onset_mask_width", juce::var(0));
+    params->setProperty("typical_filtering", juce::var(true));
+    params->setProperty("typical_mass", juce::var(0.15));
+    params->setProperty("typical_min_tokens", juce::var(64));
+    params->setProperty("seed", juce::var(0));
+    params->setProperty("model_choice", juce::var("default"));
+    params->setProperty("compression_prompt", juce::var(3));
+    params->setProperty("pitch_shift_amount", juce::var(0));
+    params->setProperty("sample_cutoff", juce::var(0.9));
+    params->setProperty("sampling_steps", juce::var(12));
+    params->setProperty("beat_mask_width", juce::var(0));
+    params->setProperty("feedback_steps", juce::var(1));
+    
+    return juce::var(params);
 }
 
 void LooperTrack::onVampNetComplete(juce::Result result, juce::File outputFile)

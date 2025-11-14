@@ -1,4 +1,5 @@
 #include "LooperTrack.h"
+#include "../Shared/ModelParameterDialog.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
 using namespace Text2Sound;
@@ -55,8 +56,11 @@ void GradioWorkerThread::run()
     gradioClient.setSpaceInfo(spaceInfo);
 
     // Step 3: Process request on background thread
+    // Ensure we have valid params (use defaults if customParams is invalid)
+    juce::var paramsToUse = customParams.isObject() ? customParams : Text2Sound::LooperTrack::getDefaultText2SoundParams();
+    
     juce::File outputFile;
-    auto result = gradioClient.processRequest(tempAudioFile, textPrompt, outputFile);
+    auto result = gradioClient.processRequest(tempAudioFile, textPrompt, outputFile, paramsToUse);
 
     // Notify completion on message thread
     juce::MessageManager::callAsync([this, result, outputFile]()
@@ -176,6 +180,9 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
       textPromptLabel("TextPrompt", "text prompt"),
       gradioUrlProvider(std::move(gradioUrlGetter))
 {
+    // Initialize custom params with defaults
+    customText2SoundParams = getDefaultText2SoundParams();
+    
     // Setup track label
     trackLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(trackLabel);
@@ -187,6 +194,11 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
     // Setup generate button
     generateButton.onClick = [this] { generateButtonClicked(); };
     addAndMakeVisible(generateButton);
+    
+    // Setup configure params button
+    configureParamsButton.setButtonText("configure other model parameters...");
+    configureParamsButton.onClick = [this] { configureParamsButtonClicked(); };
+    addAndMakeVisible(configureParamsButton);
     
     // Setup text prompt editor
     textPromptEditor.setMultiLine(false);
@@ -253,6 +265,7 @@ void LooperTrack::applyLookAndFeel()
         trackLabel.setLookAndFeel(&laf);
         resetButton.setLookAndFeel(&laf);
         generateButton.setLookAndFeel(&laf);
+        configureParamsButton.setLookAndFeel(&laf);
         textPromptEditor.setLookAndFeel(&laf);
         textPromptLabel.setLookAndFeel(&laf);
     }
@@ -292,6 +305,7 @@ void LooperTrack::resized()
     const int textPromptHeight = 30;
     const int buttonHeight = 30;
     const int generateButtonHeight = 30;
+    const int configureButtonHeight = 30;
     const int outputSelectorHeight = 30;
     const int knobAreaHeight = 140;
     const int controlsHeight = 160;
@@ -300,6 +314,7 @@ void LooperTrack::resized()
                                    knobAreaHeight + spacingSmall + 
                                    controlsHeight + spacingSmall +
                                    generateButtonHeight + spacingSmall + 
+                                   configureButtonHeight + spacingSmall +
                                    buttonHeight + spacingSmall + 
                                    outputSelectorHeight;
     
@@ -339,6 +354,10 @@ void LooperTrack::resized()
     
     // Generate button
     generateButton.setBounds(bottomArea.removeFromTop(generateButtonHeight));
+    bottomArea.removeFromTop(spacingSmall);
+    
+    // Configure params button
+    configureParamsButton.setBounds(bottomArea.removeFromTop(configureButtonHeight));
     bottomArea.removeFromTop(spacingSmall);
     
     // Transport buttons
@@ -438,6 +457,7 @@ void LooperTrack::generateButtonClicked()
                                                               trackIndex,
                                                               audioFile,
                                                               textPrompt,
+                                                              customText2SoundParams,
                                                               gradioUrlProvider);
     gradioWorkerThread->onComplete = [this](juce::Result result, juce::File outputFile, int trackIdx)
     {
@@ -445,6 +465,38 @@ void LooperTrack::generateButtonClicked()
     };
     
     gradioWorkerThread->startThread();
+}
+
+void LooperTrack::configureParamsButtonClicked()
+{
+    auto* dialog = new Shared::ModelParameterDialog(
+        "Text2Sound",
+        customText2SoundParams,
+        [this](const juce::var& newParams) {
+            customText2SoundParams = newParams;
+            DBG("Text2Sound custom parameters updated");
+        }
+    );
+    
+    dialog->enterModalState(true);
+}
+
+juce::var LooperTrack::getDefaultText2SoundParams()
+{
+    // Create default parameters object (excluding text prompt which is in UI)
+    juce::DynamicObject::Ptr params = new juce::DynamicObject();
+    
+    // These correspond to params 3-10 in the API
+    params->setProperty("param_3", juce::var(0));
+    params->setProperty("param_4", juce::var(1));
+    params->setProperty("param_5", juce::var(0));
+    params->setProperty("param_6", juce::var(25));
+    params->setProperty("param_7", juce::var(0));
+    params->setProperty("param_8", juce::var(0));
+    params->setProperty("param_9", juce::var(0));
+    params->setProperty("param_10", juce::var(true));
+    
+    return juce::var(params);
 }
 
 void LooperTrack::onGradioComplete(juce::Result result, juce::File outputFile)

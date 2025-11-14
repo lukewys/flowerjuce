@@ -10,7 +10,8 @@ GradioClient::GradioClient()
 
 juce::Result GradioClient::processRequest(const juce::File& inputAudioFile,
                                           const juce::String& textPrompt,
-                                          juce::File& outputFile)
+                                          juce::File& outputFile,
+                                          const juce::var& customParams)
 {
     // Step 1: Upload the input audio file (if provided)
     juce::String uploadedFilePath;
@@ -51,15 +52,19 @@ juce::Result GradioClient::processRequest(const juce::File& inputAudioFile,
         dataItems.add(juce::var());
     }
     
-    // Other parameters (using defaults from the example)
-    dataItems.add(juce::var(0));   // param 3
-    dataItems.add(juce::var(1));   // param 4
-    dataItems.add(juce::var(0));   // param 5
-    dataItems.add(juce::var(25));  // param 6
-    dataItems.add(juce::var(0));   // param 7
-    dataItems.add(juce::var(0));   // param 8
-    dataItems.add(juce::var(0));   // param 9
-    dataItems.add(juce::var(true)); // param 10
+    // Other parameters - customParams should always be valid (caller ensures this)
+    auto* obj = customParams.getDynamicObject();
+    if (obj != nullptr)
+    {
+        dataItems.add(obj->getProperty("param_3"));
+        dataItems.add(obj->getProperty("param_4"));
+        dataItems.add(obj->getProperty("param_5"));
+        dataItems.add(obj->getProperty("param_6"));
+        dataItems.add(obj->getProperty("param_7"));
+        dataItems.add(obj->getProperty("param_8"));
+        dataItems.add(obj->getProperty("param_9"));
+        dataItems.add(obj->getProperty("param_10"));
+    }
     
     juce::DynamicObject::Ptr payloadObj = new juce::DynamicObject();
     payloadObj->setProperty("data", juce::var(dataItems));
@@ -127,13 +132,13 @@ juce::Result GradioClient::processRequest(const juce::File& inputAudioFile,
         return juce::Result::fail("First element is not an object");
     }
 
-    juce::DynamicObject* obj = firstElement.getDynamicObject();
-    if (obj == nullptr || !obj->hasProperty("url"))
+    juce::DynamicObject* fileObj = firstElement.getDynamicObject();
+    if (fileObj == nullptr || !fileObj->hasProperty("url"))
     {
         return juce::Result::fail("Response object does not have 'url' property");
     }
 
-    juce::String fileURL = obj->getProperty("url").toString();
+    juce::String fileURL = fileObj->getProperty("url").toString();
     DBG("GradioClient: Output file URL: " + fileURL);
 
     // Step 7: Download the output file

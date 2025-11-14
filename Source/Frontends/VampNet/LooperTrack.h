@@ -24,12 +24,14 @@ public:
                        int trackIndex,
                        const juce::File& audioFile,
                        float periodicPrompt,
+                       const juce::var& customParams,
                        std::function<juce::String()> gradioUrlProvider)
         : Thread("VampNetWorkerThread"),
           looperEngine(engine),
           trackIndex(trackIndex),
           audioFile(audioFile),
           periodicPrompt(periodicPrompt),
+          customParams(customParams),
           gradioUrlProvider(std::move(gradioUrlProvider))
     {
     }
@@ -43,10 +45,11 @@ private:
     int trackIndex;
     juce::File audioFile;
     float periodicPrompt;
+    juce::var customParams;
     std::function<juce::String()> gradioUrlProvider;
     
     juce::Result saveBufferToFile(int trackIndex, juce::File& outputFile);
-    juce::Result callVampNetAPI(const juce::File& inputAudioFile, float periodicPrompt, juce::File& outputFile);
+    juce::Result callVampNetAPI(const juce::File& inputAudioFile, float periodicPrompt, const juce::var& customParams, juce::File& outputFile);
 };
 
 class LooperTrack : public juce::Component, public juce::Timer
@@ -62,6 +65,9 @@ public:
     float getPlaybackSpeed() const;
     
     float getPeriodicPrompt() const;
+    
+    // Public static method to get default parameters
+    static juce::var getDefaultVampNetParams();
 
 private:
     MultiTrackLooperEngine& looperEngine;
@@ -78,9 +84,13 @@ private:
     juce::Label trackLabel;
     juce::TextButton resetButton;
     juce::TextButton generateButton;
+    juce::TextButton configureParamsButton;
     
     std::unique_ptr<VampNetWorkerThread> vampNetWorkerThread;
     std::function<juce::String()> gradioUrlProvider;
+    
+    // Custom VampNet parameters (excluding periodic prompt which is in UI)
+    juce::var customVampNetParams;
     
     void applyLookAndFeel();
 
@@ -89,6 +99,7 @@ private:
     void muteButtonToggled(bool muted);
     void resetButtonClicked();
     void generateButtonClicked();
+    void configureParamsButtonClicked();
     
     void onVampNetComplete(juce::Result result, juce::File outputFile);
     

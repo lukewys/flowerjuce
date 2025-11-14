@@ -25,9 +25,11 @@ public:
     // Process request - simplified version that just calls generate_audio
     // Returns the downloaded output file path
     // If inputAudioFile is empty/File(), it will be treated as null (no audio input)
+    // customParams: optional custom parameters (if invalid/empty, uses defaults)
     juce::Result processRequest(const juce::File& inputAudioFile,
                                 const juce::String& textPrompt,
-                                juce::File& outputFile);
+                                juce::File& outputFile,
+                                const juce::var& customParams = juce::var());
 
 private:
     SpaceInfo spaceInfo;

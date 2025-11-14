@@ -25,12 +25,14 @@ public:
                        int trackIndex,
                        const juce::File& audioFile,
                        const juce::String& textPrompt,
+                       const juce::var& customParams,
                        std::function<juce::String()> gradioUrlProvider)
         : Thread("GradioWorkerThread"),
           looperEngine(engine),
           trackIndex(trackIndex),
           audioFile(audioFile),
           textPrompt(textPrompt),
+          customParams(customParams),
           gradioUrlProvider(std::move(gradioUrlProvider))
     {
     }
@@ -44,6 +46,7 @@ private:
     int trackIndex;
     juce::File audioFile;
     juce::String textPrompt;
+    juce::var customParams;
     GradioClient gradioClient;
     std::function<juce::String()> gradioUrlProvider;
     
@@ -63,6 +66,9 @@ public:
     float getPlaybackSpeed() const;
     
     juce::String getTextPrompt() const { return textPromptEditor.getText(); }
+    
+    // Public static method to get default parameters
+    static juce::var getDefaultText2SoundParams();
 
 private:
     MultiTrackLooperEngine& looperEngine;
@@ -79,11 +85,15 @@ private:
     juce::Label trackLabel;
     juce::TextButton resetButton;
     juce::TextButton generateButton;
+    juce::TextButton configureParamsButton;
     juce::TextEditor textPromptEditor;
     juce::Label textPromptLabel;
     
     std::unique_ptr<GradioWorkerThread> gradioWorkerThread;
     std::function<juce::String()> gradioUrlProvider;
+    
+    // Custom Text2Sound parameters (excluding text prompt which is in UI)
+    juce::var customText2SoundParams;
     
     void applyLookAndFeel();
 
@@ -92,6 +102,7 @@ private:
     void muteButtonToggled(bool muted);
     void resetButtonClicked();
     void generateButtonClicked();
+    void configureParamsButtonClicked();
     
     void onGradioComplete(juce::Result result, juce::File outputFile);
     
