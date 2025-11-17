@@ -55,6 +55,7 @@ public:
     void run() override;
 
     std::function<void(juce::Result, juce::Array<juce::File>, int)> onComplete;
+    std::function<void(const juce::String& statusText)> onStatusUpdate;
 
 private:
     MultiTrackLooperEngine& looperEngine;
@@ -85,6 +86,9 @@ public:
     // Update channel selectors based on current audio device
     void updateChannelSelectors();
     
+    // Update model parameters (called from MainComponent when shared params change)
+    void updateModelParams(const juce::var& newParams);
+    
     // Public static method to get default parameters
     static juce::var getDefaultText2SoundParams();
 
@@ -105,10 +109,12 @@ private:
     juce::Label trackLabel;
     juce::TextButton resetButton;
     juce::TextButton generateButton;
-    juce::TextButton configureParamsButton;
     juce::TextEditor textPromptEditor;
     juce::Label textPromptLabel;
     juce::ToggleButton autogenToggle;
+    
+    // Progress display
+    juce::String gradioStatusText;
     
     // Panner
     juce::String pannerType;
@@ -122,10 +128,8 @@ private:
     std::function<juce::String()> gradioUrlProvider;
     
     // Custom Text2Sound parameters (excluding text prompt which is in UI)
+    // These are shared across all tracks and updated by MainComponent
     juce::var customText2SoundParams;
-    
-    // Parameter configuration dialog
-    std::unique_ptr<Shared::ModelParameterDialog> parameterDialog;
     
     void applyLookAndFeel();
 
@@ -133,7 +137,6 @@ private:
     void muteButtonToggled(bool muted);
     void resetButtonClicked();
     void generateButtonClicked();
-    void configureParamsButtonClicked();
     
     void onGradioComplete(juce::Result result, juce::Array<juce::File> outputFiles);
     
@@ -143,6 +146,7 @@ private:
     void switchToVariation(int variationIndex);
     void cycleToNextVariation();
     void loadVariationFromFile(int variationIndex, const juce::File& audioFile);
+    void applyVariationsFromFiles(const juce::Array<juce::File>& outputFiles);
     
     // Storage for variations (each variation has its own TapeLoop)
     std::vector<std::unique_ptr<TapeLoop>> variations;
@@ -150,6 +154,13 @@ private:
     int numVariations = 2; // Default to 2 variations
     bool autoCycleVariations = true;
     float lastReadHeadPosition = 0.0f; // Track position for wrap detection
+    
+    // Pending variations waiting for loop end
+    juce::Array<juce::File> pendingVariationFiles;
+    bool hasPendingVariations = false;
+    
+    // Flag to wait for loop end before updating (when playing)
+    bool waitForLoopEndBeforeUpdate = true;
     
     // MIDI learn support
     Shared::MidiLearnManager* midiLearnManager = nullptr;

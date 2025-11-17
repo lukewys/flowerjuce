@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "../Shared/ModelParameterDialog.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
 
@@ -16,9 +17,11 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     : syncButton("sync all"),
       gradioSettingsButton("gradio settings"),
       midiSettingsButton("midi settings"),
+      modelParamsButton("model params"),
       titleLabel("Title", "tape looper"),
       audioDeviceDebugLabel("AudioDebug", ""),
-      midiLearnOverlay(midiLearnManager)
+      midiLearnOverlay(midiLearnManager),
+      sharedModelParams(Text2Sound::LooperTrack::getDefaultText2SoundParams())
 {
     DBG_SEGFAULT("ENTRY: MainComponent::MainComponent, numTracks=" + juce::String(numTracks));
     // Apply custom look and feel
@@ -38,6 +41,8 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     {
         DBG_SEGFAULT("Creating LooperTrack " + juce::String(i));
         tracks.push_back(std::make_unique<LooperTrack>(looperEngine, i, gradioUrlProvider, &midiLearnManager, pannerType));
+        // Initialize track with shared model params
+        tracks[i]->updateModelParams(sharedModelParams);
         DBG_SEGFAULT("Adding LooperTrack " + juce::String(i) + " to view");
         addAndMakeVisible(tracks[i].get());
     }
@@ -76,6 +81,25 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     // Setup MIDI settings button
     midiSettingsButton.onClick = [this] { midiSettingsButtonClicked(); };
     addAndMakeVisible(midiSettingsButton);
+    
+    // Setup model params button
+    modelParamsButton.onClick = [this] { modelParamsButtonClicked(); };
+    addAndMakeVisible(modelParamsButton);
+    
+    // Create model params dialog
+    modelParamsDialog = std::make_unique<Shared::ModelParameterDialog>(
+        "Text2Sound",
+        sharedModelParams,
+        [this](const juce::var& newParams) {
+            sharedModelParams = newParams;
+            DBG("MainComponent: Shared model parameters updated");
+            // Notify all tracks to use the new params
+            for (auto& track : tracks)
+            {
+                track->updateModelParams(sharedModelParams);
+            }
+        }
+    );
 
     // Setup title label
     titleLabel.setJustificationType(juce::Justification::centred);
@@ -138,6 +162,8 @@ void MainComponent::resized()
     gradioSettingsButton.setBounds(controlArea.removeFromLeft(180));
     controlArea.removeFromLeft(10);
     midiSettingsButton.setBounds(controlArea.removeFromLeft(120));
+    controlArea.removeFromLeft(10);
+    modelParamsButton.setBounds(controlArea.removeFromLeft(120));
     bounds.removeFromTop(10);
 
     // Tracks arranged horizontally (columns) with fixed width
@@ -280,4 +306,22 @@ void MainComponent::showMidiSettings()
         "Current mappings: " + juce::String(midiLearnManager.getAllMappings().size()),
         "OK"
     );
+}
+
+void MainComponent::modelParamsButtonClicked()
+{
+    showModelParams();
+}
+
+void MainComponent::showModelParams()
+{
+    if (modelParamsDialog != nullptr)
+    {
+        // Update the dialog with current params in case they changed
+        modelParamsDialog->updateParams(sharedModelParams);
+        
+        // Show the dialog (non-modal)
+        modelParamsDialog->setVisible(true);
+        modelParamsDialog->toFront(true);
+    }
 }

@@ -37,11 +37,16 @@ private:
     juce::TextButton syncButton;
     juce::TextButton gradioSettingsButton;
     juce::TextButton midiSettingsButton;
+    juce::TextButton modelParamsButton;
     juce::Label titleLabel;
     juce::Label audioDeviceDebugLabel;
     CustomLookAndFeel customLookAndFeel;
     juce::String gradioUrl { "https://opensound-ezaudio-controlnet.hf.space/" };
     mutable juce::CriticalSection gradioSettingsLock;
+    
+    // Shared model parameters for all tracks
+    juce::var sharedModelParams;
+    std::unique_ptr<Shared::ModelParameterDialog> modelParamsDialog;
     
     Shared::MidiLearnOverlay midiLearnOverlay;
 
@@ -53,6 +58,9 @@ private:
     juce::String getGradioUrl() const;
     void midiSettingsButtonClicked();
     void showMidiSettings();
+    void modelParamsButtonClicked();
+    void showModelParams();
+    juce::var getSharedModelParams() const { return sharedModelParams; }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

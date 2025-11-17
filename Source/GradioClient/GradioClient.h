@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include "../Frontends/Shared/GradioUtilities.h"
 
 class GradioClient
 {
