@@ -21,6 +21,7 @@
 #include "../../Panners/QuadPanner.h"
 #include "../../Panners/CLEATPanner.h"
 #include "../../Panners/Panner2DComponent.h"
+#include "../../Panners/PathGeneratorButtons.h"
 #include "../../DSP/OnsetDetector.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <memory>
@@ -132,6 +133,16 @@ private:
     juce::Label panCoordLabel; // Shows pan coordinates (x, y)
     juce::ToggleButton trajectoryToggle; // [tr] toggle for trajectory recording
     juce::ToggleButton onsetToggle; // [o] toggle for onset-based triggering
+    juce::TextButton saveTrajectoryButton; // [sv~] button for saving trajectory
+    
+    // Path generation buttons component
+    std::unique_ptr<PathGeneratorButtons> pathGeneratorButtons;
+    
+    // Path control knobs
+    juce::Slider pathSpeedKnob;
+    juce::Label pathSpeedLabel;
+    juce::Slider pathScaleKnob;
+    juce::Label pathScaleLabel;
     
     // Onset detector for audio analysis
     OnsetDetector onsetDetector;
@@ -177,6 +188,7 @@ private:
     void muteButtonToggled(bool muted);
     void resetButtonClicked();
     void generateButtonClicked();
+    void saveTrajectory();
     
     void onGradioComplete(juce::Result result, juce::Array<juce::File> outputFiles);
     
@@ -188,6 +200,9 @@ private:
                                 const juce::String& letter, juce::Rectangle<int> bounds,
                                 juce::Colour onColor, juce::Colour offColor,
                                 bool showMidiIndicator = false);
+    
+    // Generate and set a path based on type
+    void generatePath(const juce::String& pathType);
     
     // Variation management
     void switchToVariation(int variationIndex);

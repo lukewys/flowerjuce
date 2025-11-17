@@ -1,5 +1,7 @@
 #include "LooperTrack.h"
 #include "../Shared/GradioUtilities.h"
+#include "../Shared/ConfigManager.h"
+#include "../../Panners/PanningUtils.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
 using namespace Text2Sound;
@@ -186,10 +188,18 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
     trajectoryToggle.setButtonText("");
     trajectoryToggle.setLookAndFeel(&emptyToggleLookAndFeel);
     trajectoryToggle.onClick = [this] {
+        bool isOn = trajectoryToggle.getToggleState();
         if (panner2DComponent != nullptr)
         {
-            panner2DComponent->setTrajectoryRecordingEnabled(trajectoryToggle.getToggleState());
+            panner2DComponent->setTrajectoryRecordingEnabled(isOn);
             trajectoryPlaying.store(panner2DComponent->isPlaying()); // Update cached state
+            
+            // If [tr] is turned on, cancel any pregen path
+            if (isOn && pathGeneratorButtons != nullptr)
+            {
+                pathGeneratorButtons->resetAllButtons();
+                panner2DComponent->stopPlayback();
+            }
         }
     };
     addAndMakeVisible(trajectoryToggle);
@@ -197,6 +207,7 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
     // Setup onset toggle button [o]
     onsetToggle.setButtonText("");
     onsetToggle.setLookAndFeel(&emptyToggleLookAndFeel);
+    onsetToggle.setToggleState(true, juce::dontSendNotification); // Default to on
     onsetToggle.onClick = [this] {
         bool enabled = onsetToggle.getToggleState();
         onsetToggleEnabled.store(enabled); // Update atomic flag for audio thread
@@ -207,6 +218,17 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
         }
     };
     addAndMakeVisible(onsetToggle);
+    
+    // Setup save trajectory button [sv~]
+    saveTrajectoryButton.setButtonText("[sv~]");
+    saveTrajectoryButton.onClick = [this] {
+        saveTrajectory();
+    };
+    addAndMakeVisible(saveTrajectoryButton);
+    
+    // Initialize onset triggering to enabled (since toggle defaults to on)
+    // Note: panner2DComponent will be created later, so we'll set this after it's created
+    onsetToggleEnabled.store(true);
     
     // Setup audio sample callback for onset detection
     looperEngine.getTrackEngine(trackIndex).setAudioSampleCallback([this](float sample) {
@@ -390,6 +412,9 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
             }
         };
         addAndMakeVisible(panner2DComponent.get());
+        
+        // Initialize onset triggering now that panner2DComponent is created
+        panner2DComponent->setOnsetTriggeringEnabled(true);
     }
     else if (pannerTypeLower == "cleat")
     {
@@ -409,6 +434,78 @@ LooperTrack::LooperTrack(MultiTrackLooperEngine& engine, int index, std::functio
             }
         };
         addAndMakeVisible(panner2DComponent.get());
+        
+        // Initialize onset triggering now that panner2DComponent is created (for cleat)
+        panner2DComponent->setOnsetTriggeringEnabled(true);
+    }
+    
+    // Setup path generation buttons and knobs for any 2D panner (quad or cleat)
+    if (panner2DComponent != nullptr)
+    {
+        // Setup path generation buttons component
+        pathGeneratorButtons = std::make_unique<PathGeneratorButtons>();
+        pathGeneratorButtons->onPathButtonToggled = [this](const juce::String& pathType, bool isOn) {
+            if (isOn)
+            {
+                // Cancel trajectory recording if active
+                if (trajectoryToggle.getToggleState())
+                {
+                    trajectoryToggle.setToggleState(false, juce::dontSendNotification);
+                    if (panner2DComponent != nullptr)
+                    {
+                        panner2DComponent->setTrajectoryRecordingEnabled(false);
+                    }
+                }
+                
+                // Generate new path when toggled on
+                generatePath(pathType);
+            }
+            else
+            {
+                // Stop playback when toggled off
+                if (panner2DComponent != nullptr)
+                {
+                    panner2DComponent->stopPlayback();
+                }
+            }
+        };
+        addAndMakeVisible(pathGeneratorButtons.get());
+        
+        // Setup path speed knob (rotary)
+        pathSpeedKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        pathSpeedKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        pathSpeedKnob.setRange(0.1, 2.0, 0.1);
+        pathSpeedKnob.setValue(1.0);
+        pathSpeedKnob.setDoubleClickReturnValue(true, 1.0);
+        pathSpeedKnob.onValueChange = [this] {
+            if (panner2DComponent != nullptr)
+            {
+                panner2DComponent->setPlaybackSpeed(static_cast<float>(pathSpeedKnob.getValue()));
+            }
+        };
+        addAndMakeVisible(pathSpeedKnob);
+        pathSpeedLabel.setText("speed", juce::dontSendNotification);
+        pathSpeedLabel.setJustificationType(juce::Justification::centred);
+        pathSpeedLabel.setFont(juce::FontOptions(11.0f));
+        addAndMakeVisible(pathSpeedLabel);
+        
+        // Setup path scale knob (rotary)
+        pathScaleKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        pathScaleKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        pathScaleKnob.setRange(0.0, 2.0, 0.1);
+        pathScaleKnob.setValue(1.0);
+        pathScaleKnob.setDoubleClickReturnValue(true, 1.0);
+        pathScaleKnob.onValueChange = [this] {
+            if (panner2DComponent != nullptr)
+            {
+                panner2DComponent->setTrajectoryScale(static_cast<float>(pathScaleKnob.getValue()));
+            }
+        };
+        addAndMakeVisible(pathScaleKnob);
+        pathScaleLabel.setText("scale", juce::dontSendNotification);
+        pathScaleLabel.setJustificationType(juce::Justification::centred);
+        pathScaleLabel.setFont(juce::FontOptions(11.0f));
+        addAndMakeVisible(pathScaleLabel);
     }
     
     // Apply custom look and feel to all child components
@@ -521,6 +618,25 @@ void LooperTrack::paint(juce::Graphics& g)
             // Draw LED border
             g.setColour(juce::Colour(0xff1eb19d).withAlpha(0.5f)); // Teal border to match [o] button
             g.drawEllipse(ledBounds.toFloat(), 1.0f);
+        }
+        
+        // Draw knob value labels
+        if (pathSpeedKnob.isVisible() && pathSpeedKnob.getWidth() > 0)
+        {
+            auto knobBounds = pathSpeedKnob.getBounds();
+            juce::String speedText = juce::String(pathSpeedKnob.getValue(), 1) + "x";
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::FontOptions(10.0f));
+            g.drawText(speedText, knobBounds, juce::Justification::centred);
+        }
+        
+        if (pathScaleKnob.isVisible() && pathScaleKnob.getWidth() > 0)
+        {
+            auto knobBounds = pathScaleKnob.getBounds();
+            juce::String scaleText = juce::String(pathScaleKnob.getValue(), 1);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::FontOptions(10.0f));
+            g.drawText(scaleText, knobBounds, juce::Justification::centred);
         }
     }
 }
@@ -643,6 +759,19 @@ void LooperTrack::resized()
         panCoordLabel.setBounds(panLabelArea); // Coordinates on right
         bottomArea.removeFromTop(spacingSmall);
         
+        // Save trajectory button in new row below panCoordLabel
+        if (panner2DComponent != nullptr && panner2DComponent->isVisible())
+        {
+            auto saveButtonArea = bottomArea.removeFromTop(labelHeight);
+            saveTrajectoryButton.setBounds(saveButtonArea.removeFromLeft(60)); // Button width
+            bottomArea.removeFromTop(spacingSmall);
+        }
+        else
+        {
+            // Hide save button if 2D panner is not visible
+            saveTrajectoryButton.setBounds(0, 0, 0, 0);
+        }
+        
         auto pannerArea = bottomArea.removeFromTop(pannerHeight);
         if (pannerType.toLowerCase() == "stereo" && stereoPanSlider.isVisible())
         {
@@ -651,6 +780,45 @@ void LooperTrack::resized()
         else if (panner2DComponent != nullptr && panner2DComponent->isVisible())
         {
             panner2DComponent->setBounds(pannerArea);
+            
+            // Path buttons below panner
+            const int pathButtonHeight = 25;
+            auto pathButtonArea = bottomArea.removeFromTop(pathButtonHeight);
+            if (pathGeneratorButtons != nullptr)
+            {
+                pathGeneratorButtons->setBounds(pathButtonArea);
+            }
+            
+            bottomArea.removeFromTop(spacingSmall);
+            
+            // Path control knobs
+            const int knobSize = 60;
+            const int knobLabelHeight = 15;
+            const int knobSpacing = 10;
+            auto knobArea = bottomArea.removeFromTop(knobSize + knobLabelHeight);
+            
+            // Speed knob
+            auto speedKnobArea = knobArea.removeFromLeft(knobSize);
+            pathSpeedKnob.setBounds(speedKnobArea.removeFromTop(knobSize));
+            pathSpeedLabel.setBounds(speedKnobArea);
+            knobArea.removeFromLeft(knobSpacing);
+            
+            // Scale knob
+            auto scaleKnobArea = knobArea.removeFromLeft(knobSize);
+            pathScaleKnob.setBounds(scaleKnobArea.removeFromTop(knobSize));
+            pathScaleLabel.setBounds(scaleKnobArea);
+        }
+        else
+        {
+            // Hide path buttons if 2D panner is not visible
+            if (pathGeneratorButtons != nullptr)
+            {
+                pathGeneratorButtons->setBounds(0, 0, 0, 0);
+            }
+            pathSpeedKnob.setBounds(0, 0, 0, 0);
+            pathSpeedLabel.setBounds(0, 0, 0, 0);
+            pathScaleKnob.setBounds(0, 0, 0, 0);
+            pathScaleLabel.setBounds(0, 0, 0, 0);
         }
     }
 }
@@ -862,6 +1030,91 @@ void LooperTrack::onGradioComplete(juce::Result result, juce::Array<juce::File> 
     }
 }
 
+void LooperTrack::saveTrajectory()
+{
+    // Check if panner2DComponent exists and has a trajectory
+    if (panner2DComponent == nullptr)
+    {
+        DBG("LooperTrack: Cannot save trajectory - panner2DComponent is null");
+        return;
+    }
+    
+    auto trajectory = panner2DComponent->getTrajectory();
+    if (trajectory.empty())
+    {
+        DBG("LooperTrack: Cannot save trajectory - trajectory is empty");
+        return;
+    }
+    
+    // Get trajectory directory from config (with default)
+    auto defaultTrajectoryDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                    .getChildFile("unsound-objects")
+                                    .getChildFile("trajectories")
+                                    .getFullPathName();
+    juce::String trajectoryDir = Shared::ConfigManager::loadStringValue("text2sound", "trajectoryDir", defaultTrajectoryDir);
+    
+    // Create directory if it doesn't exist
+    juce::File dir(trajectoryDir);
+    juce::Result dirResult = dir.createDirectory();
+    if (!dirResult.wasOk() && !dir.isDirectory())
+    {
+        DBG("LooperTrack: Failed to create trajectory directory: " + dirResult.getErrorMessage());
+        return;
+    }
+    
+    // Get text prompt
+    juce::String prompt = textPromptEditor.getText();
+    
+    // Get duration from parameter knobs (index 1 is duration)
+    double duration = parameterKnobs.getKnobValue(1);
+    
+    // Get other trajectory parameters
+    double playbackSpeed = pathSpeedKnob.getValue();
+    double trajectoryScale = pathScaleKnob.getValue();
+    double smoothingTime = panner2DComponent->getSmoothingTime();
+    
+    // Create JSON object
+    juce::var jsonObj;
+    jsonObj.getDynamicObject()->setProperty("date", juce::Time::getCurrentTime().toISO8601(true));
+    jsonObj.getDynamicObject()->setProperty("prompt", prompt);
+    jsonObj.getDynamicObject()->setProperty("duration", duration);
+    jsonObj.getDynamicObject()->setProperty("playbackSpeed", playbackSpeed);
+    jsonObj.getDynamicObject()->setProperty("trajectoryScale", trajectoryScale);
+    jsonObj.getDynamicObject()->setProperty("smoothingTime", smoothingTime);
+    
+    // Create coords array
+    juce::var coordsArray = juce::var(juce::Array<juce::var>());
+    for (const auto& point : trajectory)
+    {
+        juce::var coordObj;
+        coordObj.getDynamicObject()->setProperty("x", point.x);
+        coordObj.getDynamicObject()->setProperty("y", point.y);
+        coordObj.getDynamicObject()->setProperty("t", point.time);
+        coordsArray.getArray()->add(coordObj);
+    }
+    jsonObj.getDynamicObject()->setProperty("coords", coordsArray);
+    
+    // Generate unique filename with timestamp
+    juce::Time now = juce::Time::getCurrentTime();
+    juce::String filename = "trajectory_" + 
+                            now.formatted("%Y%m%d_%H%M%S") + 
+                            ".json";
+    juce::File outputFile = dir.getChildFile(filename);
+    
+    // Write JSON to file
+    juce::String jsonString = juce::JSON::toString(jsonObj, true);
+    bool writeSuccess = outputFile.replaceWithText(jsonString);
+    
+    if (writeSuccess)
+    {
+        DBG("LooperTrack: Successfully saved trajectory to: " + outputFile.getFullPathName());
+    }
+    else
+    {
+        DBG("LooperTrack: Failed to save trajectory to: " + outputFile.getFullPathName());
+    }
+}
+
 void LooperTrack::resetButtonClicked()
 {
     auto& track = looperEngine.getTrack(trackIndex);
@@ -917,6 +1170,23 @@ void LooperTrack::resetButtonClicked()
     // Clear text prompt
     textPromptEditor.clear();
     
+    // Reset panner position to center and stop any path playback
+    if (panner2DComponent != nullptr)
+    {
+        panner2DComponent->stopPlayback();
+        panner2DComponent->setPanPosition(0.5f, 0.5f, juce::sendNotification);
+    }
+    else if (pannerType.toLowerCase() == "stereo" && stereoPanSlider.isVisible())
+    {
+        stereoPanSlider.setValue(0.5, juce::sendNotification);
+    }
+    
+    // Reset path generator buttons
+    if (pathGeneratorButtons != nullptr)
+    {
+        pathGeneratorButtons->resetAllButtons();
+    }
+    
     repaint();
 }
 
@@ -954,9 +1224,9 @@ float LooperTrack::getPlaybackSpeed() const
 }
 
 void LooperTrack::drawCustomToggleButton(juce::Graphics& g, juce::ToggleButton& button, 
-                                         const juce::String& letter, juce::Rectangle<int> bounds,
-                                         juce::Colour onColor, juce::Colour offColor,
-                                         bool showMidiIndicator)
+                                        const juce::String& letter, juce::Rectangle<int> bounds,
+                                        juce::Colour onColor, juce::Colour offColor,
+                                        bool showMidiIndicator)
 {
     bool isOn = button.getToggleState();
     
@@ -986,6 +1256,64 @@ void LooperTrack::drawCustomToggleButton(juce::Graphics& g, juce::ToggleButton& 
                         .withName(juce::Font::getDefaultMonospacedFontName())
                         .withHeight(18.0f)));
     g.drawText(letter, bounds, juce::Justification::centred);
+}
+
+void LooperTrack::generatePath(const juce::String& pathType)
+{
+    if (panner2DComponent == nullptr)
+        return;
+    
+    DBG("LooperTrack: Generating path type: " + pathType);
+    
+    std::vector<Panner2DComponent::TrajectoryPoint> trajectoryPoints;
+    std::vector<std::pair<float, float>> coords;
+    
+    auto pathTypeLower = pathType.toLowerCase();
+    
+    if (pathTypeLower == "circle")
+    {
+        coords = PanningUtils::generateCirclePath();
+    }
+    else if (pathTypeLower == "random")
+    {
+        coords = PanningUtils::generateRandomPath();
+    }
+    else if (pathTypeLower == "wander")
+    {
+        coords = PanningUtils::generateWanderPath();
+    }
+    else if (pathTypeLower == "swirls")
+    {
+        coords = PanningUtils::generateSwirlsPath();
+    }
+    else if (pathTypeLower == "bounce")
+    {
+        coords = PanningUtils::generateBouncePath();
+    }
+    else if (pathTypeLower == "spiral")
+    {
+        coords = PanningUtils::generateSpiralPath();
+    }
+    else
+    {
+        DBG("LooperTrack: Unknown path type: " + pathType);
+        return;
+    }
+    
+    // Convert to TrajectoryPoint format
+    for (const auto& coord : coords)
+    {
+        Panner2DComponent::TrajectoryPoint point;
+        point.x = coord.first;
+        point.y = coord.second;
+        point.time = 0.0; // Time will be set during playback
+        trajectoryPoints.push_back(point);
+    }
+    
+    // Set trajectory and start playback
+    panner2DComponent->setTrajectory(trajectoryPoints, true);
+    
+    DBG("LooperTrack: Generated " + juce::String(trajectoryPoints.size()) + " points for path type: " + pathType);
 }
 
 void LooperTrack::feedAudioSample(float sample)

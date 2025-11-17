@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
+#include "../Shared/SettingsDialog.h"
 
 using namespace VampNet;
 
@@ -14,8 +15,7 @@ using namespace VampNet;
 
 MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     : syncButton("sync all"),
-      gradioSettingsButton("gradio settings"),
-      midiSettingsButton("midi settings"),
+      settingsButton("settings"),
       clickSynthButton("click synth"),
       samplerButton("sampler"),
       titleLabel("Title", "tape looper - vampnet"),
@@ -71,13 +71,20 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     syncButton.onClick = [this] { syncButtonClicked(); };
     addAndMakeVisible(syncButton);
 
-    // Setup Gradio settings button
-    gradioSettingsButton.onClick = [this] { gradioSettingsButtonClicked(); };
-    addAndMakeVisible(gradioSettingsButton);
+    // Setup settings button
+    settingsButton.onClick = [this] { settingsButtonClicked(); };
+    addAndMakeVisible(settingsButton);
     
-    // Setup MIDI settings button
-    midiSettingsButton.onClick = [this] { midiSettingsButtonClicked(); };
-    addAndMakeVisible(midiSettingsButton);
+    // Create settings dialog
+    settingsDialog = std::make_unique<Shared::SettingsDialog>(
+        0.0, // No panner smoothing for VampNet
+        nullptr, // No smoothing callback
+        gradioUrl,
+        [this](const juce::String& newUrl) {
+            setGradioUrl(newUrl);
+        },
+        &midiLearnManager
+    );
     
     // Setup click synth button
     clickSynthButton.onClick = [this] { showClickSynthWindow(); };
@@ -147,9 +154,7 @@ void MainComponent::resized()
     auto controlArea = bounds.removeFromTop(40);
     syncButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
-    gradioSettingsButton.setBounds(controlArea.removeFromLeft(180));
-    controlArea.removeFromLeft(10);
-    midiSettingsButton.setBounds(controlArea.removeFromLeft(120));
+    settingsButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
     clickSynthButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
@@ -216,47 +221,19 @@ void MainComponent::updateAudioDeviceDebugInfo()
     }
 }
 
-void MainComponent::gradioSettingsButtonClicked()
+void MainComponent::settingsButtonClicked()
 {
-    showGradioSettings();
+    showSettings();
 }
 
-void MainComponent::showGradioSettings()
+void MainComponent::showSettings()
 {
-    juce::AlertWindow settingsWindow("gradio settings",
-                                     "enter the gradio space url for vampnet generation.",
-                                     juce::AlertWindow::NoIcon);
-
-    settingsWindow.addTextEditor("gradioUrl", getGradioUrl(), "gradio url:");
-    settingsWindow.addButton("cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    settingsWindow.addButton("save", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    settingsWindow.centreAroundComponent(this, 450, 200);
-
-    if (settingsWindow.runModalLoop() == 1)
+    if (settingsDialog != nullptr)
     {
-        juce::String newUrl = settingsWindow.getTextEditorContents("gradioUrl").trim();
-
-        if (newUrl.isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                                                   "invalid url",
-                                                   "the gradio url cannot be empty.");
-            return;
-        }
-
-        juce::URL parsedUrl(newUrl);
-        if (!parsedUrl.isWellFormed() || parsedUrl.getScheme().isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                                                   "invalid url",
-                                                   "please enter a valid gradio url, including the protocol (e.g., https://).");
-            return;
-        }
-
-        if (!newUrl.endsWithChar('/'))
-            newUrl += "/";
-
-        setGradioUrl(newUrl);
+        settingsDialog->updateGradioUrl(getGradioUrl());
+        settingsDialog->refreshMidiInfo();
+        settingsDialog->setVisible(true);
+        settingsDialog->toFront(true);
     }
 }
 
@@ -270,11 +247,6 @@ juce::String MainComponent::getGradioUrl() const
 {
     const juce::ScopedLock lock(gradioSettingsLock);
     return gradioUrl;
-}
-
-void MainComponent::midiSettingsButtonClicked()
-{
-    showMidiSettings();
 }
 
 bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent)
@@ -390,23 +362,4 @@ void MainComponent::showSamplerWindow()
     samplerWindow->toFront(true);
 }
 
-void MainComponent::showMidiSettings()
-{
-    auto devices = midiLearnManager.getAvailableMidiDevices();
-    
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "MIDI Learn",
-        "MIDI Learn is enabled!\n\n"
-        "How to use:\n"
-        "1. Right-click any control (transport, level, knobs, generate)\n"
-        "2. Select 'MIDI Learn...' from the menu\n"
-        "3. Move a MIDI controller to assign it\n"
-        "   (or click/press ESC to cancel)\n\n"
-        "Available MIDI devices:\n" + 
-        (devices.isEmpty() ? "  (none)" : "  " + devices.joinIntoString("\n  ")) + "\n\n"
-        "Current mappings: " + juce::String(midiLearnManager.getAllMappings().size()),
-        "OK"
-    );
-}
 

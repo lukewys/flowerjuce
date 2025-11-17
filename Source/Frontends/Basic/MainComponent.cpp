@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
+#include "../Shared/SettingsDialog.h"
 
 using namespace Basic;
 
@@ -14,7 +15,7 @@ using namespace Basic;
 
 MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     : syncButton("sync all"),
-      midiSettingsButton("midi settings"),
+      settingsButton("settings"),
       titleLabel("Title", "tape looper"),
       audioDeviceDebugLabel("AudioDebug", ""),
       midiLearnOverlay(midiLearnManager)
@@ -66,10 +67,19 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     // Setup sync button
     syncButton.onClick = [this] { syncButtonClicked(); };
     addAndMakeVisible(syncButton);
+
+    // Setup settings button
+    settingsButton.onClick = [this] { settingsButtonClicked(); };
+    addAndMakeVisible(settingsButton);
     
-    // Setup MIDI settings button
-    midiSettingsButton.onClick = [this] { midiSettingsButtonClicked(); };
-    addAndMakeVisible(midiSettingsButton);
+    // Create settings dialog (no gradio, only MIDI)
+    settingsDialog = std::make_unique<Shared::SettingsDialog>(
+        0.0, // No panner smoothing for Basic
+        nullptr, // No smoothing callback
+        juce::String(), // No gradio URL
+        nullptr, // No gradio callback
+        &midiLearnManager
+    );
 
     // Setup title label
     titleLabel.setJustificationType(juce::Justification::centred);
@@ -129,7 +139,7 @@ void MainComponent::resized()
     auto controlArea = bounds.removeFromTop(40);
     syncButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
-    midiSettingsButton.setBounds(controlArea.removeFromLeft(120));
+    settingsButton.setBounds(controlArea.removeFromLeft(120));
     bounds.removeFromTop(10);
 
     // Tracks arranged horizontally (columns) with fixed width
@@ -201,28 +211,18 @@ void MainComponent::updateAllChannelSelectors()
     }
 }
 
-void MainComponent::midiSettingsButtonClicked()
+void MainComponent::settingsButtonClicked()
 {
-    showMidiSettings();
+    showSettings();
 }
 
-void MainComponent::showMidiSettings()
+void MainComponent::showSettings()
 {
-    auto devices = midiLearnManager.getAvailableMidiDevices();
-    
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "MIDI Learn",
-        "MIDI Learn is enabled!\n\n"
-        "How to use:\n"
-        "1. Right-click any control (transport, level, knobs)\n"
-        "2. Select 'MIDI Learn...' from the menu\n"
-        "3. Move a MIDI controller to assign it\n"
-        "   (or click/press ESC to cancel)\n\n"
-        "Available MIDI devices:\n" + 
-        (devices.isEmpty() ? "  (none)" : "  " + devices.joinIntoString("\n  ")) + "\n\n"
-        "Current mappings: " + juce::String(midiLearnManager.getAllMappings().size()),
-        "OK"
-    );
+    if (settingsDialog != nullptr)
+    {
+        settingsDialog->refreshMidiInfo();
+        settingsDialog->setVisible(true);
+        settingsDialog->toFront(true);
+    }
 }
 

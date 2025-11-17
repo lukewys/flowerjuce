@@ -62,6 +62,20 @@ public:
     void setSmoothingTime(double smoothingTimeSeconds);
     double getSmoothingTime() const { return smoothingTime; }
     
+    // Set trajectory from external source (for premade paths)
+    void setTrajectory(const std::vector<TrajectoryPoint>& points, bool startPlaybackImmediately = true);
+    
+    // Get current trajectory (returns original unscaled trajectory)
+    std::vector<TrajectoryPoint> getTrajectory() const;
+    
+    // Set playback speed multiplier (0.1 to 2.0, default 1.0)
+    void setPlaybackSpeed(float speed);
+    float getPlaybackSpeed() const { return playbackSpeed; }
+    
+    // Set trajectory scale (0.0 to 2.0, default 1.0) - scales radially from center (0.5, 0.5)
+    void setTrajectoryScale(float scale);
+    float getTrajectoryScale() const { return trajectoryScale; }
+    
     // Timer callback for playback animation
     void timerCallback() override;
 
@@ -83,6 +97,7 @@ private:
     bool trajectoryRecordingEnabled{false};
     bool onsetTriggeringEnabled{false};
     std::vector<TrajectoryPoint> trajectory;
+    std::vector<TrajectoryPoint> originalTrajectory; // Store unscaled trajectory for scaling operations
     double recordingStartTime{0.0};
     double lastRecordTime{0.0};
     static constexpr double recordInterval{0.1}; // 100ms = 10fps
@@ -91,7 +106,10 @@ private:
     size_t currentPlaybackIndex{0};
     double playbackStartTime{0.0};
     double lastPlaybackTime{0.0};
-    static constexpr double playbackInterval{0.1}; // 100ms = 10fps
+    static constexpr double basePlaybackInterval{0.1}; // 100ms = 10fps base interval
+    double playbackInterval{basePlaybackInterval}; // Actual interval adjusted by speed
+    float playbackSpeed{1.0f}; // Speed multiplier (0.1 to 2.0)
+    float trajectoryScale{1.0f}; // Scale factor for trajectory (0.0 to 2.0)
     
     // Smoothing for trajectory playback
     double smoothingTime{0.0}; // Smoothing time in seconds (0 = no smoothing)
@@ -113,6 +131,9 @@ private:
     
     // Update pan position with smoothing applied
     void updatePanPositionWithSmoothing(float x, float y);
+    
+    // Apply scale to trajectory points (scales radially from center)
+    void applyTrajectoryScale();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Panner2DComponent)
 };

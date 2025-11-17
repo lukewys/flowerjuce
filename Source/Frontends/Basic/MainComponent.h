@@ -10,6 +10,11 @@
 #include "../Shared/MidiLearnManager.h"
 #include "../Shared/MidiLearnComponent.h"
 
+namespace Shared
+{
+    class SettingsDialog;
+}
+
 namespace Basic
 {
 
@@ -38,17 +43,20 @@ private:
     std::vector<std::unique_ptr<Basic::LooperTrack>> tracks;
     
     juce::TextButton syncButton;
-    juce::TextButton midiSettingsButton;
+    juce::TextButton settingsButton;
     juce::Label titleLabel;
     juce::Label audioDeviceDebugLabel;
     CustomLookAndFeel customLookAndFeel;
     
     Shared::MidiLearnOverlay midiLearnOverlay;
+    
+    // Settings dialog
+    std::unique_ptr<Shared::SettingsDialog> settingsDialog;
 
     void syncButtonClicked();
-    void midiSettingsButtonClicked();
+    void settingsButtonClicked();
+    void showSettings();
     void updateAudioDeviceDebugInfo();
-    void showMidiSettings();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

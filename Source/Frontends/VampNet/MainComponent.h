@@ -12,6 +12,11 @@
 #include "../Shared/MidiLearnManager.h"
 #include "../Shared/MidiLearnComponent.h"
 
+namespace Shared
+{
+    class SettingsDialog;
+}
+
 namespace VampNet
 {
 
@@ -39,8 +44,7 @@ private:
     std::vector<std::unique_ptr<VampNet::LooperTrack>> tracks;
     
     juce::TextButton syncButton;
-    juce::TextButton gradioSettingsButton;
-    juce::TextButton midiSettingsButton;
+    juce::TextButton settingsButton;
     juce::TextButton clickSynthButton;
     juce::TextButton samplerButton;
     juce::Label titleLabel;
@@ -56,17 +60,18 @@ private:
     
     // Sampler window
     std::unique_ptr<SamplerWindow> samplerWindow;
+    
+    // Settings dialog
+    std::unique_ptr<Shared::SettingsDialog> settingsDialog;
 
     void syncButtonClicked();
     void showClickSynthWindow();
     void showSamplerWindow();
-    void gradioSettingsButtonClicked();
+    void settingsButtonClicked();
+    void showSettings();
     void updateAudioDeviceDebugInfo();
-    void showGradioSettings();
     void setGradioUrl(const juce::String& newUrl);
     juce::String getGradioUrl() const;
-    void midiSettingsButtonClicked();
-    void showMidiSettings();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

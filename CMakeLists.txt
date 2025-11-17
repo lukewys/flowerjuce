@@ -43,6 +43,7 @@ target_sources(TapeLooper PRIVATE
     Source/Panners/QuadPanner.cpp
     Source/Panners/CLEATPanner.cpp
     Source/Panners/Panner2DComponent.cpp
+    Source/Panners/PathGeneratorButtons.cpp
     Source/Panners/PannerTests.cpp
 )
 
@@ -65,6 +66,7 @@ target_sources(TapeLooper PRIVATE
     Source/Panners/QuadPanner.h
     Source/Panners/CLEATPanner.h
     Source/Panners/Panner2DComponent.h
+    Source/Panners/PathGeneratorButtons.h
     Source/Panners/PannerTests.h
 )
 

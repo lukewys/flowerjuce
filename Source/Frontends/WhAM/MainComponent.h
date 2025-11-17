@@ -15,6 +15,11 @@
 #include "../Shared/MidiLearnManager.h"
 #include "../Shared/MidiLearnComponent.h"
 
+namespace Shared
+{
+    class SettingsDialog;
+}
+
 namespace WhAM
 {
 
@@ -47,8 +52,7 @@ private:
     bool isRecordingHeld = false;  // True while 'r' key is held
     
     juce::TextButton syncButton;
-    juce::TextButton gradioSettingsButton;
-    juce::TextButton midiSettingsButton;
+    juce::TextButton settingsButton;
     juce::TextButton clickSynthButton;
     juce::TextButton samplerButton;
     juce::TextButton vizButton;
@@ -69,18 +73,19 @@ private:
     
     // Token visualizer window
     std::unique_ptr<TokenVisualizerWindow> vizWindow;
+    
+    // Settings dialog
+    std::unique_ptr<Shared::SettingsDialog> settingsDialog;
 
     void syncButtonClicked();
     void showClickSynthWindow();
     void showSamplerWindow();
     void showVizWindow();
-    void gradioSettingsButtonClicked();
+    void settingsButtonClicked();
+    void showSettings();
     void updateAudioDeviceDebugInfo();
-    void showGradioSettings();
     void setGradioUrl(const juce::String& newUrl);
     juce::String getGradioUrl() const;
-    void midiSettingsButtonClicked();
-    void showMidiSettings();
     void showOverflowMenu();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)

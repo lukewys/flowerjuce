@@ -45,5 +45,27 @@ namespace PanningUtils
     // y: 0.0 = bottom, 1.0 = top
     // Returns: array of 16 gains (row-major: channels 0-3 = bottom row left-to-right)
     std::array<float, 16> computeCLEATGains(float x, float y);
+    
+    // Path generation functions for panner trajectories
+    // All functions generate points in normalized 0-1 space (x, y)
+    // Returns vector of (x, y) pairs where x and y are in 0-1 range
+    
+    // Generate circular path
+    std::vector<std::pair<float, float>> generateCirclePath(int numPoints = 0);
+    
+    // Generate random path
+    std::vector<std::pair<float, float>> generateRandomPath(int numPoints = 0);
+    
+    // Generate wander path (Brownian motion)
+    std::vector<std::pair<float, float>> generateWanderPath(int numPoints = 0);
+    
+    // Generate swirls path (multiple overlapping circular motions)
+    std::vector<std::pair<float, float>> generateSwirlsPath(int numPoints = 0);
+    
+    // Generate bounce path (two points in different quadrants)
+    std::vector<std::pair<float, float>> generateBouncePath();
+    
+    // Generate spiral path (from center outward)
+    std::vector<std::pair<float, float>> generateSpiralPath(int numPoints = 0);
 }
 

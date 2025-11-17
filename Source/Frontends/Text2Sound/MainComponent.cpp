@@ -17,8 +17,6 @@ using namespace Text2Sound;
 
 MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     : syncButton("sync all"),
-      gradioSettingsButton("gradio settings"),
-      midiSettingsButton("midi settings"),
       modelParamsButton("model params"),
       settingsButton("settings"),
       titleLabel("Title", "tape looper"),
@@ -68,6 +66,14 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
         DBG("MainComponent: Loaded Gradio URL from config: " + gradioUrl);
     }
     
+    // Load trajectory directory from config (default: ~/Documents/unsound-objects/trajectories)
+    auto defaultTrajectoryDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                    .getChildFile("unsound-objects")
+                                    .getChildFile("trajectories")
+                                    .getFullPathName();
+    trajectoryDir = Shared::ConfigManager::loadStringValue("text2sound", "trajectoryDir", defaultTrajectoryDir);
+    DBG("MainComponent: Loaded trajectory directory from config: " + trajectoryDir);
+    
     // Set size based on number of tracks
     // Each track has a fixed width, and window adjusts to fit all tracks
     DBG_SEGFAULT("Setting size");
@@ -87,14 +93,6 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
     syncButton.onClick = [this] { syncButtonClicked(); };
     addAndMakeVisible(syncButton);
 
-    // Setup Gradio settings button
-    gradioSettingsButton.onClick = [this] { gradioSettingsButtonClicked(); };
-    addAndMakeVisible(gradioSettingsButton);
-    
-    // Setup MIDI settings button
-    midiSettingsButton.onClick = [this] { midiSettingsButtonClicked(); };
-    addAndMakeVisible(midiSettingsButton);
-    
     // Setup model params button
     modelParamsButton.onClick = [this] { modelParamsButtonClicked(); };
     addAndMakeVisible(modelParamsButton);
@@ -114,6 +112,21 @@ MainComponent::MainComponent(int numTracks, const juce::String& pannerType)
             {
                 track->setPannerSmoothingTime(smoothingTime);
             }
+        },
+        gradioUrl,
+        [this](const juce::String& newUrl) {
+            setGradioUrl(newUrl);
+            // Save to config immediately when changed
+            Shared::ConfigManager::saveStringValue("text2sound", "gradioUrl", newUrl);
+            DBG("MainComponent: Saved Gradio URL to config: " + newUrl);
+        },
+        &midiLearnManager,
+        trajectoryDir,
+        [this](const juce::String& newDir) {
+            trajectoryDir = newDir;
+            // Save to config immediately when changed
+            Shared::ConfigManager::saveStringValue("text2sound", "trajectoryDir", newDir);
+            DBG("MainComponent: Saved trajectory directory to config: " + newDir);
         }
     );
     
@@ -174,6 +187,10 @@ MainComponent::~MainComponent()
     Shared::ConfigManager::saveStringValue("text2sound", "gradioUrl", gradioUrl);
     DBG("MainComponent: Saved Gradio URL to config: " + gradioUrl);
     
+    // Save trajectory directory to config
+    Shared::ConfigManager::saveStringValue("text2sound", "trajectoryDir", trajectoryDir);
+    DBG("MainComponent: Saved trajectory directory to config: " + trajectoryDir);
+    
     setLookAndFeel(nullptr);
 }
 
@@ -193,10 +210,6 @@ void MainComponent::resized()
     // Control buttons
     auto controlArea = bounds.removeFromTop(40);
     syncButton.setBounds(controlArea.removeFromLeft(120));
-    controlArea.removeFromLeft(10);
-    gradioSettingsButton.setBounds(controlArea.removeFromLeft(180));
-    controlArea.removeFromLeft(10);
-    midiSettingsButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
     modelParamsButton.setBounds(controlArea.removeFromLeft(120));
     controlArea.removeFromLeft(10);
@@ -264,90 +277,16 @@ void MainComponent::updateAudioDeviceDebugInfo()
     }
 }
 
-void MainComponent::gradioSettingsButtonClicked()
-{
-    showGradioSettings();
-}
-
-void MainComponent::showGradioSettings()
-{
-    juce::AlertWindow settingsWindow("gradio settings",
-                                     "enter the gradio space url for text-to-sound generation.",
-                                     juce::AlertWindow::NoIcon);
-
-    settingsWindow.addTextEditor("gradioUrl", getGradioUrl(), "gradio url:");
-    settingsWindow.addButton("cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    settingsWindow.addButton("save", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    settingsWindow.centreAroundComponent(this, 450, 200);
-
-    if (settingsWindow.runModalLoop() == 1)
-    {
-        juce::String newUrl = settingsWindow.getTextEditorContents("gradioUrl").trim();
-
-        if (newUrl.isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                                                   "invalid url",
-                                                   "the gradio url cannot be empty.");
-            return;
-        }
-
-        juce::URL parsedUrl(newUrl);
-        if (!parsedUrl.isWellFormed() || parsedUrl.getScheme().isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                                                   "invalid url",
-                                                   "please enter a valid gradio url, including the protocol (e.g., https://).");
-            return;
-        }
-
-        if (!newUrl.endsWithChar('/'))
-            newUrl += "/";
-
-        setGradioUrl(newUrl);
-        
-        // Save to config immediately when changed
-        Shared::ConfigManager::saveStringValue("text2sound", "gradioUrl", newUrl);
-        DBG("MainComponent: Saved Gradio URL to config: " + newUrl);
-    }
-}
-
 void MainComponent::setGradioUrl(const juce::String& newUrl)
 {
     const juce::ScopedLock lock(gradioSettingsLock);
     gradioUrl = newUrl;
-    // Note: Saving to config is handled in showGradioSettings() after validation
 }
 
 juce::String MainComponent::getGradioUrl() const
 {
     const juce::ScopedLock lock(gradioSettingsLock);
     return gradioUrl;
-}
-
-void MainComponent::midiSettingsButtonClicked()
-{
-    showMidiSettings();
-}
-
-void MainComponent::showMidiSettings()
-{
-    auto devices = midiLearnManager.getAvailableMidiDevices();
-    
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "MIDI Learn",
-        "MIDI Learn is enabled!\n\n"
-        "How to use:\n"
-        "1. Right-click any control (transport, level, knobs, generate)\n"
-        "2. Select 'MIDI Learn...' from the menu\n"
-        "3. Move a MIDI controller to assign it\n"
-        "   (or click/press ESC to cancel)\n\n"
-        "Available MIDI devices:\n" + 
-        (devices.isEmpty() ? "  (none)" : "  " + devices.joinIntoString("\n  ")) + "\n\n"
-        "Current mappings: " + juce::String(midiLearnManager.getAllMappings().size()),
-        "OK"
-    );
 }
 
 void MainComponent::modelParamsButtonClicked()
@@ -377,8 +316,11 @@ void MainComponent::showSettings()
 {
     if (settingsDialog != nullptr)
     {
-        // Update the dialog with current smoothing time
+        // Update the dialog with current values
         settingsDialog->updateSmoothingTime(pannerSmoothingTime);
+        settingsDialog->updateGradioUrl(getGradioUrl());
+        settingsDialog->updateTrajectoryDir(trajectoryDir);
+        settingsDialog->refreshMidiInfo();
         
         // Show the dialog (non-modal)
         settingsDialog->setVisible(true);

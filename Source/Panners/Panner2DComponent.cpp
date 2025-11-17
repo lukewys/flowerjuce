@@ -120,6 +120,7 @@ void Panner2DComponent::mouseDrag(const juce::MouseEvent& e)
                 point.y = panPos.y;
                 point.time = elapsedTime;
                 trajectory.push_back(point);
+                originalTrajectory.push_back(point);
                 lastRecordTime = currentTime;
             }
         }
@@ -206,6 +207,7 @@ void Panner2DComponent::startRecording()
     DBG("Panner2DComponent: Starting trajectory recording");
     recordingState = Recording;
     trajectory.clear();
+    originalTrajectory.clear();
     recordingStartTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     lastRecordTime = recordingStartTime;
     
@@ -215,6 +217,7 @@ void Panner2DComponent::startRecording()
     initialPoint.y = panY;
     initialPoint.time = 0.0;
     trajectory.push_back(initialPoint);
+    originalTrajectory.push_back(initialPoint);
 }
 
 void Panner2DComponent::stopRecording()
@@ -421,7 +424,7 @@ void Panner2DComponent::timerCallback()
     {
         double currentTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
         
-        // Advance at 10fps (every 100ms) - but only if timer interval is appropriate
+        // Advance at rate determined by playbackInterval (adjusted by speed)
         // If we're running at 60fps for smoothing, we need to check time difference
         if (currentTime - lastPlaybackTime >= playbackInterval)
         {
@@ -476,6 +479,94 @@ void Panner2DComponent::updatePanPositionWithSmoothing(float x, float y)
                 onPanChange(panX, panY);
             }
         }
+    }
+}
+
+void Panner2DComponent::setTrajectory(const std::vector<TrajectoryPoint>& points, bool startPlaybackImmediately)
+{
+    DBG("Panner2DComponent: Setting trajectory with " + juce::String(points.size()) + " points");
+    
+    // Stop any current playback
+    if (recordingState == Playing)
+    {
+        stopPlayback();
+    }
+    
+    // Store original trajectory and apply current scale
+    originalTrajectory = points;
+    trajectory = points;
+    
+    // Apply current scale to trajectory
+    applyTrajectoryScale();
+    
+    // Start playback if requested
+    if (startPlaybackImmediately && !trajectory.empty())
+    {
+        startPlayback();
+    }
+}
+
+std::vector<Panner2DComponent::TrajectoryPoint> Panner2DComponent::getTrajectory() const
+{
+    // Return original unscaled trajectory
+    return originalTrajectory;
+}
+
+void Panner2DComponent::setPlaybackSpeed(float speed)
+{
+    playbackSpeed = juce::jlimit(0.1f, 2.0f, speed);
+    playbackInterval = basePlaybackInterval / playbackSpeed;
+    DBG("Panner2DComponent: Playback speed set to " + juce::String(playbackSpeed) + "x, interval = " + juce::String(playbackInterval));
+}
+
+void Panner2DComponent::setTrajectoryScale(float scale)
+{
+    trajectoryScale = juce::jlimit(0.0f, 2.0f, scale);
+    DBG("Panner2DComponent: Trajectory scale set to " + juce::String(trajectoryScale));
+    
+    // Apply scale to trajectory if we have one
+    if (!originalTrajectory.empty())
+    {
+        applyTrajectoryScale();
+        
+        // If currently playing, update current position
+        if (recordingState == Playing && currentPlaybackIndex < trajectory.size())
+        {
+            const auto& point = trajectory[currentPlaybackIndex];
+            updatePanPositionWithSmoothing(point.x, point.y);
+        }
+    }
+}
+
+void Panner2DComponent::applyTrajectoryScale()
+{
+    if (originalTrajectory.empty())
+        return;
+    
+    trajectory.clear();
+    trajectory.reserve(originalTrajectory.size());
+    
+    const float centerX = 0.5f;
+    const float centerY = 0.5f;
+    
+    for (const auto& point : originalTrajectory)
+    {
+        TrajectoryPoint scaledPoint;
+        
+        // Convert to center-relative coordinates
+        float relX = point.x - centerX;
+        float relY = point.y - centerY;
+        
+        // Scale
+        relX *= trajectoryScale;
+        relY *= trajectoryScale;
+        
+        // Convert back and clamp
+        scaledPoint.x = juce::jlimit(0.0f, 1.0f, centerX + relX);
+        scaledPoint.y = juce::jlimit(0.0f, 1.0f, centerY + relY);
+        scaledPoint.time = point.time;
+        
+        trajectory.push_back(scaledPoint);
     }
 }
 
